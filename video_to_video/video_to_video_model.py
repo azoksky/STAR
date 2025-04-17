@@ -81,6 +81,8 @@ class VideoToVideo_sr():
         max_chunk_len: int      = 32,
         chunk_size: int         = 3
     ):
+        logger.info(f"Steps = {steps}")
+        logger.info(f"Chunk_size = {chunk_size}")
         video_data = input['video_data']  # [F, C, H, W]
         prompt     = input['y']           # string or precomputed embedding
         target_h, target_w = input['target_res']
