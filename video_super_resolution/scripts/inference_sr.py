@@ -28,6 +28,7 @@ class STAR():
                  guide_scale=7.5,
                  upscale=4,
                  max_chunk_len=32,
+                 vae_chunk_size=3,
                  ):
         self.model_path=model_path
         logger.info('checkpoint_path: {}'.format(self.model_path))
