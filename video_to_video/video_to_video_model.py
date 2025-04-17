@@ -148,7 +148,8 @@ class VideoToVideo_sr():
             torch.cuda.empty_cache()
 
         # Return result on CPU in float32
-        return gen_video.float().cpu()
+        #return gen_video.float().cpu()
+        return gen_video.type(torch.float32).cpu()
 
 
     def temporal_vae_decode(self, z, num_f):
