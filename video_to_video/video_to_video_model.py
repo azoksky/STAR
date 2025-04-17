@@ -118,7 +118,8 @@ class VideoToVideo_sr():
                 make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len)
                 if frames_num > max_chunk_len else None
             )
-            logger.info("Steps = "+ steps)
+            logger.info(f"Steps = {steps}")
+            logger.info(f"Chunk_size = {chunk_size}")
             gen_vid = self.diffusion.sample_sr(
                 noise            = noised_lr,
                 model            = self.generator,
