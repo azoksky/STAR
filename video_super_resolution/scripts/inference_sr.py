@@ -115,7 +115,7 @@ def main():
     file_name = args.file_name
     upscale = args.upscale
     max_chunk_len = args.max_chunk_len
-
+    vae_chunk_size = args.vae_chunk_size
     steps = args.steps
     solver_mode = args.solver_mode
     guide_scale = args.cfg
