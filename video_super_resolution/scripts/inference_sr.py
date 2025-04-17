@@ -132,6 +132,7 @@ def main():
                 guide_scale=guide_scale,
                 upscale=upscale,
                 max_chunk_len=max_chunk_len,
+                vae_chunk_size=vae_chunk_size,
                 )
 
     star.enhance_a_video(input_path, prompt)
