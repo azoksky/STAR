@@ -78,7 +78,8 @@ class VideoToVideo_sr():
         steps: int              = 50,
         solver_mode: str        = 'fast',
         guide_scale: float      = 7.5,
-        max_chunk_len: int      = 32
+        max_chunk_len: int      = 32,
+        chunk_size: int         = 3
     ):
         video_data = input['video_data']  # [F, C, H, W]
         prompt     = input['y']           # string or precomputed embedding
@@ -142,7 +143,7 @@ class VideoToVideo_sr():
             #    (vae_decode_chunk will move gen_vid under the hood)
             
             gen_vid = gen_vid.to(self.device1)
-            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=1)
+            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=chunk_size)
 
         logger.info('Sampling + VAE decode finished under AMP')
 
