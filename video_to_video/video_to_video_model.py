@@ -140,6 +140,8 @@ class VideoToVideo_sr():
 
             # c) VAE decode on GPU1
             #    (vae_decode_chunk will move gen_vid under the hood)
+            
+            gen_vid = gen_vid.to(self.device1)
             vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=3)
 
         logger.info('Sampling + VAE decode finished under AMP')
