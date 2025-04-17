@@ -142,7 +142,7 @@ class VideoToVideo_sr():
             #    (vae_decode_chunk will move gen_vid under the hood)
             
             gen_vid = gen_vid.to(self.device1)
-            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=3)
+            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=1)
 
         logger.info('Sampling + VAE decode finished under AMP')
 
@@ -164,7 +164,7 @@ class VideoToVideo_sr():
     def temporal_vae_decode(self, z, num_f):
         return self.vae.decode(z/self.vae.config.scaling_factor, num_frames=num_f).sample
 
-    def vae_decode_chunk(self, z, chunk_size=3):
+    def vae_decode_chunk(self, z, chunk_size=1):
         z = rearrange(z, "b c f h w -> (b f) c h w")
         video = []
         for ind in range(0, z.shape[0], chunk_size):
