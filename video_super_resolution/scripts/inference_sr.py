@@ -46,6 +46,8 @@ class STAR():
         self.guide_scale=guide_scale
         self.upscale = upscale
         self.max_chunk_len=max_chunk_len
+        self.vae_chunk_size = chunk_size
+        
 
     def enhance_a_video(self, video_path, prompt):
         logger.info('input video path: {}'.format(video_path))
@@ -72,7 +74,7 @@ class STAR():
             data_tensor = collate_fn(pre_data, 'cuda:0')
             output = self.model.test(data_tensor, total_noise_levels, steps=self.steps, \
                                 solver_mode=self.solver_mode, guide_scale=self.guide_scale, \
-                                max_chunk_len=self.max_chunk_len
+                                max_chunk_len=self.max_chunk_len, chunk_size=self.vae_chunk_size
                                 )
 
         output = tensor2vid(output)
