@@ -71,85 +71,92 @@ class VideoToVideo_sr():
         self.negative_y = negative_y  # Store negative prompt embedding on GPU 0 in FP16
         logger.info('Negative prompt encoded on GPU 1 and transferred to GPU 0 (FP16)')
 
-    def test(self, input: Dict[str, Any], total_noise_levels=1000, steps=50, 
-         solver_mode='fast', guide_scale=7.5, max_chunk_len=32):
-        video_data = input['video_data']           # Input frames tensor (B x C x H x W)
-        y = input['y']                             # Input prompt (string or pre-computed embedding)
-        target_h, target_w = input['target_res']   # Desired output resolution
+    def test(
+        self,
+        input: Dict[str, Any],
+        total_noise_levels: int = 1000,
+        steps: int              = 50,
+        solver_mode: str        = 'fast',
+        guide_scale: float      = 7.5,
+        max_chunk_len: int      = 32
+    ):
+        video_data = input['video_data']  # [F, C, H, W]
+        prompt     = input['y']           # string or precomputed embedding
+        target_h, target_w = input['target_res']
 
-        # Preprocess video frames (resize and pad)
+        # Resize + pad to multiple of 64
         video_data = F.interpolate(video_data, [target_h, target_w], mode='bilinear')
         frames_num, _, h, w = video_data.shape
-        padding = pad_to_fit(h, w)
-        video_data = F.pad(video_data, padding, 'constant', 1)
-        video_data = video_data.unsqueeze(0)       # Add batch dimension
+        padding = pad_to_fit(h, w)  # (w1,w2,h1,h2)
+        video_data = F.pad(video_data, padding, 'constant', 1).unsqueeze(0)  # [1, F, C, H, W]
         bs = 1
 
-        # Move input video frames to GPU 1 for VAE encoding
-        video_data = video_data.to(self.device1)
-        video_data_feature = self.vae_encode(video_data)           # Encode video frames to latent (GPU 1)
-        video_data_feature = video_data_feature.to(self.device, dtype=torch.float16)  # Transfer latents to GPU 0 (FP16)
-
-        # Free unused memory on both GPUs after VAE encoding
+        # 2) VAE encoding on GPU1
+        video_data = video_data.to(self.device1)            # move frames to GPU1
+        video_data_feature = self.vae_encode(video_data)    # [1, C_latent, F, H', W']
+        # transfer latent to GPU0 for diffusion
+        video_data_feature = video_data_feature.to(self.device)
+        # free caches on both GPUs
         torch.cuda.empty_cache()
-        with torch.cuda.device(self.device1):
-            torch.cuda.empty_cache()
+        if self.device1 != self.device:
+            with torch.cuda.device(self.device1):
+                torch.cuda.empty_cache()
 
-        # Encode text prompt on GPU 1, then move embedding to GPU 0 for guidance
-        y = self.text_encoder(y).detach().to(self.device, dtype=torch.float16)        # CLIP text to GPU 0 (FP16)
-    
-        # Prepare diffusion inputs for U-Net (on GPU 0)
-        t = torch.LongTensor([total_noise_levels - 1]).to(self.device)
-        # Add noise to the latent frames (diffusion noise schedule)
+        # 3) CLIP text encoding on GPU1 → move to GPU0
+        y = self.text_encoder(prompt).detach().to(self.device)
+
+        # 4) Diffusion + decode under one AMP context
+        #    (adds noise, runs U‑Net sampling, then VAE decode)
         with torch.cuda.amp.autocast(enabled=True):
+            # a) add noise
+            t = torch.LongTensor([total_noise_levels - 1]).to(self.device)
             noised_lr = self.diffusion.diffuse(video_data_feature, t)
-        noised_lr = noised_lr.half()  # Ensure noised latent is FP16 to match U-Net
 
-        # Model kwargs: positive and negative text embeddings, plus video hint latent
-        model_kwargs = [ {'y': y}, {'y': self.negative_y}, {'hint': video_data_feature} ]
-
-        # Free cached memory on both GPUs before diffusion sampling
-        torch.cuda.empty_cache()
-        with torch.cuda.device(self.device1):
+            # b) sample with U‑Net (FP16 weights & inputs)
+            chunk_inds = (
+                make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len)
+                if frames_num > max_chunk_len else None
+            )
+            gen_vid = self.diffusion.sample_sr(
+                noise            = noised_lr,
+                model            = self.generator,
+                model_kwargs     = [
+                    {'y':        y},
+                    {'y':        self.negative_y},
+                    {'hint':     video_data_feature}
+                ],
+                guide_scale      = guide_scale,
+                guide_rescale    = 0.2,
+                solver           = 'dpmpp_2m_sde',
+                solver_mode      = solver_mode,
+                return_intermediate = None,
+                steps            = steps,
+                t_max            = total_noise_levels - 1,
+                t_min            = 0,
+                discretization   = 'trailing',
+                chunk_inds       = chunk_inds,
+            )
             torch.cuda.empty_cache()
 
-        # Diffusion sampling on GPU 0 (U-Net inference in FP16)
-        gen_vid = self.diffusion.sample_sr(
-            noise=noised_lr,
-            model=self.generator,
-            model_kwargs=model_kwargs,
-            guide_scale=guide_scale,
-            guide_rescale=0.2,
-            solver='dpmpp_2m_sde',
-            solver_mode=solver_mode,
-            steps=steps,
-            t_max=total_noise_levels - 1,
-            t_min=0,
-            discretization='trailing',
-            chunk_inds = make_chunks(frames_num, interp_f_num=0, max_chunk_len=max_chunk_len) 
-                     if frames_num > max_chunk_len else None
-            )
-        logger.info('Diffusion sampling on U-Net (GPU 0) finished.')
+            # c) VAE decode on GPU1
+            #    (vae_decode_chunk will move gen_vid under the hood)
+            vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=3)
 
-        # Move generated latent video to GPU 1 for VAE decoding
-        gen_vid = gen_vid.to(self.device1)
-        vid_tensor_gen = self.vae_decode_chunk(gen_vid, chunk_size=3)  # Decode latents to frames on GPU 1
+        logger.info('Sampling + VAE decode finished under AMP')
 
-        # Remove padding from output frames
+        # 5) Remove padding & reshape back to video tensor
         w1, w2, h1, h2 = padding
         vid_tensor_gen = vid_tensor_gen[:, :, h1 : h + h1, w1 : w + w1]
-
-        # Reshape back to (batch, channels, frames, height, width)
         gen_video = rearrange(vid_tensor_gen, '(b f) c h w -> b c f h w', b=bs)
 
-        # Free memory on both GPUs after decoding
+        # 6) Final cleanup & return on CPU
         torch.cuda.empty_cache()
-        with torch.cuda.device(self.device1):
-            torch.cuda.empty_cache()
+        if self.device1 != self.device:
+            with torch.cuda.device(self.device1):
+                torch.cuda.empty_cache()
 
-        # Return result on CPU in float32
-        #return gen_video.float().cpu()
-        return gen_video.type(torch.float32).cpu()
+        return gen_video.float().cpu()
+
 
 
     def temporal_vae_decode(self, z, num_f):
