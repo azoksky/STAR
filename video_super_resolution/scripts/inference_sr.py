@@ -46,7 +46,7 @@ class STAR():
         self.guide_scale=guide_scale
         self.upscale = upscale
         self.max_chunk_len=max_chunk_len
-        self.vae_chunk_size = chunk_size
+        self.vae_chunk_size = vae_chunk_size
         
 
     def enhance_a_video(self, video_path, prompt):
@@ -100,7 +100,7 @@ def parse_args():
     parser.add_argument("--cfg", type=float, default=7.5)
     parser.add_argument("--solver_mode", type=str, default='fast', help='fast | normal')
     parser.add_argument("--steps", type=int, default=15)
-    parser.add_argument("--chunk_size", type=int, default=3, help="Number of frames to decode at once in the VAE (default: 3)")
+    parser.add_argument("--vae_chunk_size", type=int, default=3, help="Number of frames to decode at once in the VAE (default: 3)")
 
     return parser.parse_args()
 
