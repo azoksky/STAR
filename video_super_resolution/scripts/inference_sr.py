@@ -98,6 +98,7 @@ def parse_args():
     parser.add_argument("--cfg", type=float, default=7.5)
     parser.add_argument("--solver_mode", type=str, default='fast', help='fast | normal')
     parser.add_argument("--steps", type=int, default=15)
+    parser.add_argument("--chunk_size", type=int, default=3, help="Number of frames to decode at once in the VAE (default: 3)")
 
     return parser.parse_args()
 
